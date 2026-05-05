@@ -1,0 +1,9 @@
+menu "OLED screen"
+
+config SSD1306
+    bool "mgpio device driver"
+    depends on ARM || ARM64
+    default y if ARM || ARM64
+    help
+        I2C Oled device driver
+endmenu
