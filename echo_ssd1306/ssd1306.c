@@ -31,7 +31,7 @@ typedef struct ssd1306_i2c_module {
     uint8_t font_size;
 
     dev_t dev_num;
-    struct class *m_class;
+    struct class *class;
     struct device *device;
     struct cdev m_dev;
 }ssd1306_i2c_module_t;
@@ -286,15 +286,33 @@ static void ssd1306_print_string(struct ssd1306_i2c_module_t *module, unsigned c
 static long ssd1306_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
     uint8_t brightness;
+    int ret = 0;
+
     if (!module_ssd1306) return -ENODEV;
-    switch(cmd){
+
+    switch (cmd) {
         case SSD1306_CLEAR:
             pr_info("SSD1306: Clearing display via ioctl\n");
             ssd1306_clear(module_ssd1306);
             break;
+
         case SSD1306_WRITE:
             pr_info("SSD1306: Setting brightness via ioctl\n");
+            if (copy_from_user(&brightness, (uint8_t __user *)arg, sizeof(brightness))) {
+                pr_err("SSD1306: Failed to copy brightness from user\n");
+                ret = -EFAULT;
+                break;
+            }
+            ssd1306_set_brightness(module_ssd1306, brightness);
+            break;
+
+        default:
+            pr_warn("SSD1306: Unknown ioctl command: 0x%x\n", cmd);
+            ret = -ENOTTY;
+            break;
     }
+
+    return ret;
 }
 
 static int ssd1306_create_device_file(ssd1306_i2c_module_t *module)
@@ -325,7 +343,7 @@ static int ssd1306_create_device_file(ssd1306_i2c_module_t *module)
 
     cdev_init(&module->m_dev, &fops);
     (module->m_dev).owner = THIS_MODULE;
-    (module->m_dev).dev = module->dev_num, 1
+    (module->m_dev).dev = module->dev_num, 1;
 
     ret = cdev_add(&module->m_dev, module->dev_num,1);
     if (ret) {
@@ -370,6 +388,7 @@ int ssd1306_i2c_probe (struct i2c_client *client)
     {
         kfree(module);
         pr_err("[%s -%d] create device file failed\n", __func__, __LINE__);
+        return -ENODEV;
     }
 
     module_ssd1306 = module;
@@ -380,7 +399,7 @@ int ssd1306_i2c_probe (struct i2c_client *client)
 
 void ssd1306_i2c_remove (struct i2c_client *client)
 {
-    struct ssd1306_i2c_module *module = i2c_get_clientdata(client);
+    struct ssd1306_i2c_module_t *module = i2c_get_clientdata(client);
 
     ssd1306_print_string(module, "END!!");
     msleep(1000);
@@ -393,7 +412,7 @@ void ssd1306_i2c_remove (struct i2c_client *client)
     class_destroy(module->class);
     unregister_chrdev_region(module->dev_num, 1);
 
-    kree(module);
+    kfree(module);
     pr_info("SSD1306 driver removed\n");
 }
 
