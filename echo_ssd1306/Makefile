@@ -1,2 +1,0 @@
-EXTRA_CFLAGS = -Wall
-obj-$(CONFIG_SSD1306) = ssd1306.o

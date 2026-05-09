@@ -4,30 +4,56 @@
 #include <linux/i2c.h>
 #include <linux/delay.h>
 #include <linux/kernel.h>
+#include <linux/fs.h>	     
+#include <linux/device.h>     
+#include <linux/cdev.h>       
+#include <linux/uaccess.h>    
+#include <linux/gpio.h>       
+#include <linux/string.h>
 
-#define SSD1306_MAX_SEG 128
-#define SSD1306_MAX_LINE 7
-#define SSD1306_DEF_FONT_SIZE 5
+#define SSD1306_MAX_SEG         128
+#define SSD1306_MAX_LINE        7
+#define SSD1306_DEF_FONT_SIZE   5
+#define MAX_BUFF                256
+
+#define SSD1306_MAGIC 'S'
+
+#define SSD1306_CLEAR  _IO(SSD1306_MAGIC, 1)
+#define SSD1306_PRINT  _IOW(SSD1306_MAGIC, 2, char *)
 
 #define DRIVER_AUTHOR "minhhungdenguyn052@gmail.com"
 #define DRIVER_DESC   "I2C DEVICE DRIVER FOR OLED 0.96 DISPLAY"
 
-struct ssd1306_i2c_module {
+
+typedef struct ssd1306_i2c_module_t {
     struct i2c_client *client;
     uint8_t line_num;
     uint8_t cursor_position;
     uint8_t font_size;
+
+    dev_t dev_num;
+    struct class *class;
+    struct device *device;
+    struct cdev m_dev;
+}ssd1306_i2c_module_t;
+
+char message[MAX_BUFF];
+ssd1306_i2c_module_t* module_ssd1306 = NULL;
+
+static long ssd1306_ioctl(struct file *file,
+                          unsigned int cmd,
+                          unsigned long arg)
+
+static struct file_operations fops = 
+{
+	.owner		= THIS_MODULE,
+    .unlocked_ioctl = ssd1306_ioctl,
 };
 
-static const struct i2c_device_id ssd1306_i2c_match_id[] = {
-    {"ssd1306", 0},
-    { }
-};
-
-/*static  const struct of_device_id ssd1306_of_match_ids[] = {
-    { .compatible = "ssd1306,match", },
+static  const struct of_device_id ssd1306_of_match_ids[] = {
+    { .compatible = "ssd1306", },
     {  }
-};*/
+};
 
 static const unsigned char ssd1306_font[][SSD1306_DEF_FONT_SIZE] = {
     { 0x00, 0x00, 0x00, 0x00, 0x00 }, // 20 space
@@ -128,17 +154,17 @@ static const unsigned char ssd1306_font[][SSD1306_DEF_FONT_SIZE] = {
     { 0x00, 0x00, 0x00, 0x00, 0x00 }  // 7f
   };
 
-static int ssd1306_i2c_write(struct ssd1306_i2c_module *module, unsigned char *buf, unsigned int len)
+static int ssd1306_i2c_write(struct ssd1306_i2c_module_t *module, unsigned char *buf, unsigned int len)
 {
     return i2c_master_send(module->client, buf, len);
 }
 
-static int ssd1306_i2c_read(struct ssd1306_i2c_module *module, unsigned char *out_buf, unsigned int len)
+static int ssd1306_i2c_read(struct ssd1306_i2c_module_t *module, unsigned char *out_buf, unsigned int len)
 {
     return i2c_master_recv(module->client, out_buf, len);
 }
 
-static void ssd1306_write(struct ssd1306_i2c_module *module, bool is_cmd, unsigned char data)
+static void ssd1306_write(struct ssd1306_i2c_module_t *module, bool is_cmd, unsigned char data)
 {
     unsigned char buf[2] = {0};
 
@@ -150,9 +176,11 @@ static void ssd1306_write(struct ssd1306_i2c_module *module, bool is_cmd, unsign
 
     buf[1] = data;
     ssd1306_i2c_write(module, buf, 2);
+
+    
 }
 
-static void ssd1306_clear(struct ssd1306_i2c_module *module)
+static void ssd1306_clear(struct ssd1306_i2c_module_t *module)
 {
     unsigned int total = 128*8;
     int i;
@@ -163,7 +191,7 @@ static void ssd1306_clear(struct ssd1306_i2c_module *module)
 }
 
 
-static int ssd1306_display_init(struct ssd1306_i2c_module *module)
+static int ssd1306_display_init(struct ssd1306_i2c_module_t *module)
 {
     msleep(100);
     ssd1306_write(module, true, 0xAE); // Entire Display OFF
@@ -197,7 +225,7 @@ static int ssd1306_display_init(struct ssd1306_i2c_module *module)
     return 0;
 }
 
-static void ssd1306_set_cursor(struct ssd1306_i2c_module *module, uint8_t line_num, uint8_t cursor_position)
+static void ssd1306_set_cursor(struct ssd1306_i2c_module_t *module, uint8_t line_num, uint8_t cursor_position)
 {
     if((line_num <= SSD1306_MAX_LINE) && (cursor_position < SSD1306_MAX_SEG)){
         module->line_num = line_num; // Save the specified line number
@@ -211,20 +239,20 @@ static void ssd1306_set_cursor(struct ssd1306_i2c_module *module, uint8_t line_n
     }
 }
 
-static void ssd1306_set_brightness(struct ssd1306_i2c_module *module, uint8_t brightness)
+static void ssd1306_set_brightness(struct ssd1306_i2c_module_t *module, uint8_t brightness)
 {
     ssd1306_write(module, true, 0x81);
     ssd1306_write(module, true, brightness);
 }
 
-static void ssd1306_goto_next_line(struct ssd1306_i2c_module *module)
+static void ssd1306_goto_next_line(struct ssd1306_i2c_module_t *module)
 {
     module->line_num++;
     module->line_num = (module->line_num & SSD1306_MAX_LINE);
     ssd1306_set_cursor(module, module->line_num, 0);
 }
 
-static void ssd1306_print_char(struct ssd1306_i2c_module *module, unsigned char c)
+static void ssd1306_print_char(struct ssd1306_i2c_module_t *module, unsigned char c)
 {
     uint8_t data_byte;
     uint8_t temp = 0;
@@ -248,21 +276,114 @@ static void ssd1306_print_char(struct ssd1306_i2c_module *module, unsigned char 
     }
 }
 
-static void ssd1306_print_string(struct ssd1306_i2c_module *module, unsigned char *str)
+static void ssd1306_print_string(struct ssd1306_i2c_module_t *module, unsigned char *str)
 {
     while(*str) {
         ssd1306_print_char(module, *str++);
     }
 }
 
+static long ssd1306_ioctl(struct file *file,
+                          unsigned int cmd,
+                          unsigned long arg)
+{
+    char buffer[128];
+
+    switch (cmd) {
+
+        case SSD1306_CLEAR:
+
+            ssd1306_clear(module_ssd1306);
+
+            printk(KERN_INFO "SSD1306 CLEAR\n");
+
+            break;
+
+        case SSD1306_PRINT:
+
+            memset(buffer, 0, sizeof(buffer));
+
+            if (copy_from_user(buffer,
+                            (char __user *)arg,
+                            sizeof(buffer)))
+            {
+                return -EFAULT;
+            }
+
+            printk(KERN_INFO "OLED STRING: %s\n", buffer);
+
+            ssd1306_clear(module_ssd1306);
+
+            ssd1306_set_cursor(module_ssd1306, 0, 0);
+
+            ssd1306_print_string(module_ssd1306, buffer);
+
+            break;
+
+        default:
+            return -EINVAL;
+    }
+
+    return 0;
+}
+
+static int ssd1306_create_device_file(ssd1306_i2c_module_t *module)
+{
+    int ret = 0;
+
+    pr_info("[%s - %d]\n", __func__, __LINE__);
+
+    ret = alloc_chrdev_region(&(module->dev_num), 0, 1, "ssd1306_devnum");
+    if (ret < 0){
+        pr_err("[%s - %d] can not register major number\n", __func__, __LINE__);
+        goto alloc_dev_failed;
+    }
+
+    pr_info("Major = %d , Minor = %d\n", MAJOR(module->dev_num), MINOR(module->dev_num)); 
+
+    module->class = class_create("ssd1306_class");
+    if (module->class == NULL) {
+        pr_err("[%s - %d] can not create class device\n", __func__, __LINE__);
+        goto create_class_failed;
+    }
+
+    module->device = device_create(module->class, NULL, module->dev_num, NULL, "ssd1306_device");
+    if (module->device == NULL) {
+        pr_err("[%s - %d] can not register major number\n", __func__, __LINE__);
+        goto device_create_failed;
+    }
+
+    cdev_init(&module->m_dev, &fops);
+    (module->m_dev).owner = THIS_MODULE;
+    (module->m_dev).dev = module->dev_num, 1;
+
+    ret = cdev_add(&module->m_dev, module->dev_num,1);
+    if (ret) {
+        pr_info("error occur when add properties for struct cdev\n");
+        goto cdev_add_fail;
+    }
+
+    pr_info("I2C driver module\n");
+    return 0;
+    
+    cdev_add_fail:
+        device_destroy(module->class, module->dev_num);
+    device_create_failed:
+        class_destroy(module->class);
+    create_class_failed:
+        unregister_chrdev_region(module->dev_num, 1);
+    alloc_dev_failed:
+        return ret;
+}
+
 int ssd1306_i2c_probe (struct i2c_client *client)
 {   
-    struct ssd1306_i2c_module *module;
+    struct ssd1306_i2c_module_t *module;
 
     module = kmalloc(sizeof(*module), GFP_KERNEL);
     if (!module){
-        pr_err("kmalloc failed\n");
-        return -1;
+        pr_err("[%s -%d] kmalloc failed\n", __func__, __LINE__);
+        return -ENOMEM;
     }
 
     module->client = client;
@@ -275,29 +396,47 @@ int ssd1306_i2c_probe (struct i2c_client *client)
     ssd1306_set_cursor(module,0,0);
     ssd1306_print_string(module, "Hello\nWorld\n");
 
+    if(ssd1306_create_device_file(module) != 0)
+    {
+        kfree(module);
+        pr_err("[%s -%d] create device file failed\n", __func__, __LINE__);
+    }
+
+    module_ssd1306 = module;
+    pr_info("[%s - %d]\n", __func__, __LINE__);
     return 0;
 }
 
 
 void ssd1306_i2c_remove (struct i2c_client *client)
 {
-    struct ssd1306_i2c_module *module = i2c_get_clientdata(client);
-    if (module){
-        kfree(module);
-    }
+    struct ssd1306_i2c_module_t *module = i2c_get_clientdata(client);
+
+    ssd1306_print_string(module, "END!!");
+    msleep(1000);
+    ssd1306_clear(module);
+    ssd1306_write(module, true, 0xAE);
+
+
+    cdev_del(&module->m_dev);
+    device_destroy(module->class, module->dev_num);
+    class_destroy(module->class);
+    unregister_chrdev_region(module->dev_num, 1);
+
+    kfree(module);
     pr_info("SSD1306 driver removed\n");
 }
 
-static  const struct i2c_driver ssd1306_i2c_driver = {
+static struct i2c_driver ssd1306_i2c_driver = {
         .driver = {
             .name = "ssd1306",
             .owner = THIS_MODULE,
-            //.of_match_table = of_match_ptr(ssd1306_of_match_ids), // tao node trong makefile (obj-m = ssd1306.o)
+            .of_match_table = of_match_ptr(ssd1306_of_match_ids), // tao node trong makefile (obj-m = ssd1306.o)
         },
         .probe = ssd1306_i2c_probe,
         .remove = ssd1306_i2c_remove,
-        .id_table = ssd1306_i2c_match_id,
 };
+
 
 
 
