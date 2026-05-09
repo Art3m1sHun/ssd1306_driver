@@ -102,45 +102,6 @@ Example Device Tree node:
 
 ---
 
-# Build and Deployment
-
-## Build Yocto Image
-
-```bash
-bitbake core-image-base
-```
-
-## Build Kernel Module
-
-```bash
-make
-```
-
-## Insert Driver
-
-```bash
-modprobe ssd1306
-```
-
-## Run User-space Application
-
-```bash
-./ssd1306_app
-```
-
----
-
-# Debugging
-
-Useful commands:
-
-```bash
-dmesg | tail
-i2cdetect -y 1
-lsmod
-```
-
----
 
 # Demo
 
