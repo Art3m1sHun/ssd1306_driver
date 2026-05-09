@@ -10,6 +10,7 @@ Custom Linux kernel driver for SSD1306 OLED display running on a Yocto-based Emb
 * SSD1306 OLED driver development in Linux kernel space
 * I2C communication support
 * Device Tree integration and driver matching
+* ioctl-based communication between user space and kernel space
 * User-space command-line application
 * Text rendering and screen control
 * Successfully deployed and tested on real hardware
