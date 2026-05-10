@@ -11,7 +11,6 @@
 #define SSD1306_PRINT   _IOW(SSD1306_MAGIC, 2, char *)
 #define SSD1306_PATH    "/dev/ssd1306_device"
 
-/* Chuyển "\n" literal thành ký tự newline thật */
 static void unescape_newline(char *str) {
     char buf[128];
     char *src = str, *dst = buf;
@@ -28,7 +27,6 @@ static void unescape_newline(char *str) {
     strncpy(str, buf, 127);
 }
 
-/* Đọc số nguyên an toàn, tránh loop vô hạn */
 static int read_option(void) {
     char buf[32];
     if (fgets(buf, sizeof(buf), stdin) == NULL)
@@ -79,10 +77,10 @@ int main(void)
                     break;
                 }
 
-                /* Xóa newline cuối */
+             
                 message[strcspn(message, "\n")] = '\0';
 
-                /* Cho phép nhập \n để xuống dòng trên OLED */
+          
                 unescape_newline(message);
 
                 if (strlen(message) == 0) {
@@ -98,7 +96,7 @@ int main(void)
 
             case 99:
                 printf("Goodbye!\n");
-                /* Clear màn hình trước khi thoát */
+               
                 ioctl(fd, SSD1306_CLEAR);
                 close(fd);
                 return 0;
