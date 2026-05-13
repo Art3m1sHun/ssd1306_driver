@@ -442,7 +442,7 @@ static struct i2c_driver ssd1306_i2c_driver = {
 
 module_i2c_driver(ssd1306_i2c_driver);
 
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("MIT");
 MODULE_AUTHOR(DRIVER_AUTHOR);
 MODULE_DESCRIPTION(DRIVER_DESC); 
 MODULE_VERSION("1.0"); 
